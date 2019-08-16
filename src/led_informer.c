@@ -1,3 +1,6 @@
+// status led driver.
+// Authors: Djok_39
+// License: MIT
 #include "mgos.h"
 
 #define LED_OFF 0

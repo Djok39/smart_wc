@@ -1,4 +1,4 @@
-// status led driver.
+// MQ* gas sensor driver. Suitable for MQ7, MQ9 and other MQ*
 // Authors: Djok_39
 // License: MIT
 #include "mgos.h"
