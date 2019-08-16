@@ -1,0 +1,101 @@
+author: Djok_39
+description: Smart home node on ESP32.
+arch: ESP32
+version: 1.0
+manifest_version: 2017-05-18
+libs_version: ${mos.version}
+modules_version: ${mos.version}
+mongoose_os_version: ${mos.version}
+
+config_schema:
+  - ["node.name", "s", "toilet", {title: "MQTT pub name, i.e: co2/toilet"}]
+  # you can fast test functionality on http://www.hivemq.com/demos/websocket-client/
+  - ["mqtt.server", "broker.hivemq.com:1883"]
+  - ["mqtt.enable", true]
+  - ["rpc.mqtt.enable", false]  # Disable remote control over MQTT
+  # - ["mqtt.ssl_ca_cert", "mqtt_ca.crt"]
+  # - ["mqtt.user", "smart_wc"]
+  # - ["mqtt.pass", ""]
+  # - ["wifi.sta.ssid", "AndroidAP"]
+  # - ["wifi.sta.pass", "1234567890"]
+  # - ["wifi.sta.enable", false]
+  - ["wifi.ap.enable", true]
+  # - ["wifi.sta2.ssid", ""]
+  # - ["wifi.sta2.pass", ""]
+  # - ["wifi.sta2.enable", false]
+  # - ["wifi.sta2.enable", true]
+  - ["wifi.ap.disable_after", 360]
+  - ["sys.tz_spec", "YEKT-5"]
+  - ["debug.level", 2]
+  # - ["dash.token", 123]
+  # - ["dash.enable", true]
+  # most output GPIO is configuring as open drain output, exept mq.power, onboard led, bicolor led.
+  - ["load1", "i", 25, {title: "gpio pin"}]
+  - ["load2", "i", 5, {title: "gpio pin"}]
+  - ["load3", "i", 13, {title: "gpio pin"}]
+  - ["load4", "i", 14, {title: "gpio pin"}]
+  - ["load5", "i", 23, {title: "gpio pin"}]
+  - ["board.led1.pin", "i", 2, {title: "on board led pin"}]
+  - ["led.lock1", "i", 18, {title: "gpio pin"}]
+  - ["led.lock2", "i", 19, {title: "gpio pin"}]
+  - ["led.alert1", "i", 4, {title: "gpio pin"}]
+  - ["led.alert2", "i", 16, {title: "gpio pin"}]
+  - ["led.online", "i", 22, {title: "gpio pin"}]
+  # normal open contacts between gpio and ground, internal pull up is used.
+  - ["door1", "i", 26, {title: "gpio pin"}]
+  - ["door2", "i", 27, {title: "gpio pin"}]
+  - ["motion1", "i", 35, {title: "gpio pin"}]
+  - ["motion2", "i", 39, {title: "gpio pin"}]
+  - ["motion3", "i", 36, {title: "gpio pin"}]
+  # you may use MQ7, MQ9, MQ135 and other similiar MQ sensor, which measuring almost same set of gases.
+  # connect mq.power pin to gate of logic level power N-mosfet, which enables heater.
+  - ["mq.enable", "b", true, {title: "Activate MQ* sensor"}]
+  - ["mq.power", "i", 15, {title: "gpio pin"}]
+  - ["mq.sense", "i", 34, {title: "gpio pin"}]
+  - ["mq.mult", "i", 14, {title: "power duty cycle time multiplier"}]
+  - ["mq.div", "i", 50, {title: "power duty cycle time divider"}]
+  - ["light.timeout", "i", 6, {title: "disable auto light in seconds"}]
+  - ["z19.enable", "b", true, {title: "CO2 sensor"}]
+  - ["z19.uart_rx", "i", 32, {title: "gpio pin"}]
+  - ["z19.uart_tx", "i", 33, {title: "gpio pin"}]
+
+sources:
+  - src
+
+tags:
+  - js
+  - MQ9
+  - MQ7
+  - z19b
+  - PIR
+  - HC-SR501
+
+filesystem:
+  - fs
+
+libs:
+  - origin: https://github.com/mongoose-os-libs/ca-bundle
+  - origin: https://github.com/mongoose-os-libs/core
+  - origin: https://github.com/mongoose-os-libs/rpc-service-config
+  - origin: https://github.com/mongoose-os-libs/rpc-service-fs
+  - origin: https://github.com/mongoose-os-libs/rpc-service-gpio
+  - origin: https://github.com/mongoose-os-libs/rpc-service-ota
+  - origin: https://github.com/mongoose-os-libs/rpc-uart
+  - origin: https://github.com/mongoose-os-libs/mjs
+  - origin: https://github.com/mongoose-os-libs/dash
+  # - origin: https://github.com/mongoose-os-libs/sntp
+  # - origin: https://github.com/mongoose-os-libs/shadow
+  - origin: https://github.com/mongoose-os-libs/http-server
+  # - origin: https://github.com/mongoose-os-libs/ota-http-client
+  - origin: https://github.com/mongoose-os-libs/ota-http-server
+  # - origin: https://github.com/mongoose-os-libs/ota-shadow
+  - origin: https://github.com/mongoose-os-libs/wifi
+  - origin: https://github.com/mongoose-os-libs/pwm
+  - origin: https://github.com/mongoose-os-libs/mqtt
+  - origin: https://github.com/mongoose-os-libs/adc
+
+build_vars:
+  ESP_IDF_SDKCONFIG_OPTS: "${build_vars.ESP_IDF_SDKCONFIG_OPTS} CONFIG_TIMER_TASK_STACK_SIZE=4096 CONFIG_ESP32_DEFAULT_CPU_FREQ_80=y CONFIG_ESP32_DEFAULT_CPU_FREQ_MHZ=80 CONFIG_LOG_COLORS="
+
+cdefs:
+  MGOS_TASK_STACK_SIZE_BYTES: 16384
