@@ -199,12 +199,12 @@ static void pwm_hw_timer_cb(void *arg) {
   (void) arg;
 }
 
-bool mq_init(void){
+bool mq_init(int powerPin, int sensePin){
   if (pm_mq9.initialised)
     return true;
 
-  power = mgos_sys_config_get_mq_power();
-  sense = mgos_sys_config_get_mq_sense();
+  power = powerPin;
+  sense = sensePin;
 
   // load low power duty cycle from config
   if (TOTAL_JOBS >= 2 && strcmp(workCycle[1].name, "co")==0){

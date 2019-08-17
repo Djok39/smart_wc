@@ -8,7 +8,7 @@ modules_version: ${mos.version}
 mongoose_os_version: ${mos.version}
 
 config_schema:
-  - ["node.name", "s", "toilet", {title: "MQTT pub name, i.e: co2/toilet"}]
+  - ["node.name", "s", "toilet", {title: "MQTT pub location, i.e: co2/toilet"}]
   # you can fast test functionality on http://www.hivemq.com/demos/websocket-client/
   - ["mqtt.server", "broker.hivemq.com:1883"]
   - ["mqtt.enable", true]
@@ -23,41 +23,13 @@ config_schema:
   # - ["wifi.sta2.ssid", ""]
   # - ["wifi.sta2.pass", ""]
   # - ["wifi.sta2.enable", false]
-  # - ["wifi.sta2.enable", true]
   - ["wifi.ap.disable_after", 360]
-  - ["sys.tz_spec", "YEKT-5"]
   - ["debug.level", 2]
   # - ["dash.token", 123]
   # - ["dash.enable", true]
-  # most output GPIO is configuring as open drain output, exept mq.power, onboard led, bicolor led.
-  - ["load1", "i", 25, {title: "gpio pin"}]
-  - ["load2", "i", 5, {title: "gpio pin"}]
-  - ["load3", "i", 13, {title: "gpio pin"}]
-  - ["load4", "i", 14, {title: "gpio pin"}]
-  - ["load5", "i", 23, {title: "gpio pin"}]
-  - ["board.led1.pin", "i", 2, {title: "on board led pin"}]
-  - ["led.lock1", "i", 18, {title: "gpio pin"}]
-  - ["led.lock2", "i", 19, {title: "gpio pin"}]
-  - ["led.alert1", "i", 4, {title: "gpio pin"}]
-  - ["led.alert2", "i", 16, {title: "gpio pin"}]
-  - ["led.online", "i", 22, {title: "gpio pin"}]
-  # normal open contacts between gpio and ground, internal pull up is used.
-  - ["door1", "i", 26, {title: "gpio pin"}]
-  - ["door2", "i", 27, {title: "gpio pin"}]
-  - ["motion1", "i", 35, {title: "gpio pin"}]
-  - ["motion2", "i", 39, {title: "gpio pin"}]
-  - ["motion3", "i", 36, {title: "gpio pin"}]
-  # you may use MQ7, MQ9, MQ135 and other similiar MQ sensor, which measuring almost same set of gases.
-  # connect mq.power pin to gate of logic level power N-mosfet, which enables heater.
-  - ["mq.enable", "b", true, {title: "Activate MQ* sensor"}]
-  - ["mq.power", "i", 15, {title: "gpio pin"}]
-  - ["mq.sense", "i", 34, {title: "gpio pin"}]
   - ["mq.mult", "i", 14, {title: "power duty cycle time multiplier"}]
   - ["mq.div", "i", 50, {title: "power duty cycle time divider"}]
   - ["light.timeout", "i", 6, {title: "disable auto light in seconds"}]
-  - ["z19.enable", "b", true, {title: "CO2 sensor"}]
-  - ["z19.uart_rx", "i", 32, {title: "gpio pin"}]
-  - ["z19.uart_tx", "i", 33, {title: "gpio pin"}]
 
 sources:
   - src

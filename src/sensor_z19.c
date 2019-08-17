@@ -148,21 +148,14 @@ int z19_get_valid_ppm(void){
 #endif
 }
 
-bool z19_init(void){
+bool z19_init(int uartRx, int uartTx){
   if (z19.initialised)
     return true;
 
   struct mgos_uart_config ucfg;
   mgos_uart_config_set_defaults(UART_NO, &ucfg);
-
-  int cfg_rx_pin = mgos_sys_config_get_z19_uart_rx();
-  if (cfg_rx_pin)
-    ucfg.dev.rx_gpio = cfg_rx_pin;
-
-  int cfg_tx_pin = mgos_sys_config_get_z19_uart_tx();
-  if (cfg_tx_pin)
-    ucfg.dev.tx_gpio = cfg_tx_pin;
-
+  ucfg.dev.rx_gpio = uartRx;
+  ucfg.dev.tx_gpio = uartTx;
   ucfg.baud_rate = 9600;
   ucfg.num_data_bits = 8;
   ucfg.parity = MGOS_UART_PARITY_NONE;

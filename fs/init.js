@@ -2,16 +2,40 @@ load('api_config.js');
 load('api_net.js');
 load('api_dash.js');
 load('api_events.js');
-// load('api_gcp.js');
 load('api_gpio.js');
 load('api_mqtt.js');
-load('api_shadow.js');
+// load('api_shadow.js');
 load('api_timer.js');
 load('api_sys.js');
-// load('api_watson.js');
 load('api_mq.js');
 load('api_z19.js');
 load('api_led.js');
+
+// GPIO assignment
+let pin = {
+  lamp1: 13,
+  lamp2: 5,
+  lamp3: 25,
+  fan: 14,
+  socket: 23,
+  led: 2,
+  locked1Led: 18,
+  locked2Led: 19,
+  alarmLed: 4,
+  vocLed: 16,
+  bicolorRed: 12,
+  bicolorGreen: 17,
+  onlineLed: 22,
+  door1: 26,
+  door2: 27,
+  pir1: 35,
+  pir2: 39,
+  pir3: 36,
+  mqPower: 15,
+  mqSense: 34,
+  z19uartRx: 32,
+  z19uartTx: 33
+};
 
 let base = Event.baseNumber("SM_");
 if (!Event.regBase(base, "Smart node")) {
@@ -22,7 +46,6 @@ let METHANE = base + 1;
 let CO = base + 2;
 let CO2 = base + 3;
 
-let led = Cfg.get('board.led1.pin'); // Built-in LED GPIO number
 let enabled = 0;    // We using open drain output, so high is 0
 let online = false; // Connected to the cloud?
 
@@ -33,47 +56,45 @@ let initLight = function(pin) {
   GPIO.set_pull(pin, GPIO.PULL_NONE);
 };
 
-initLight(Cfg.get('load1'));
-initLight(Cfg.get('load2'));
-initLight(Cfg.get('load3'));
-initLight(Cfg.get('load4'));
-initLight(Cfg.get('load5'));
+initLight(pin.lamp1);
+initLight(pin.lamp2);
+initLight(pin.lamp3);
+initLight(pin.fan);
+initLight(pin.socket);
 
-initLight(Cfg.get('led.alert1'));
-initLight(Cfg.get('led.alert2'));
-// initLight(Cfg.get('led.alert3'));
+initLight(pin.alarmLed);
+initLight(pin.vocLed);
 
-initLight(Cfg.get('led.lock1'));
-initLight(Cfg.get('led.lock2'));
+initLight(pin.locked1Led);
+initLight(pin.locked2Led);
 
-GPIO.set_mode(led, 1);
+GPIO.set_mode(pin.led, 1);
 
 let light_proto = {motion: null, lamp: 0, door: -1, door_state: 1, motion_state: 0, timer: null, led_locked: null, locked: false, enabled_at: -1.0, disabled_at: -1.0, forced_at: -7.0}; 
 let timeout_base = Cfg.get('light.timeout');
 let pir_slippage_time = 7.0; // HC-SR501 sensor has bug/feature, where you leave room, but sensor will still detect motion for some time.
-let alarm_led = Cfg.get('led.alert1'); // show exceptions while experimenting
-let smart_socket_pin = Cfg.get('load5');
-// Свет в корридоре
-let passage = Object.create(light_proto);
-passage.id = "passage";
-passage.lamp = Cfg.get('load1');
-passage.motion = Cfg.get('motion3');
-
-// Свет в туалете
-let toilet = Object.create(light_proto);
-toilet.id = "toilet";
-toilet.lamp = Cfg.get('load2');
-toilet.motion = Cfg.get('motion2');
-toilet.door = Cfg.get('door2');
-toilet.led_locked = Cfg.get('led.lock2');
 
 // Свет в ванной
 let bathroom = Object.create(light_proto);
 bathroom.id = "bathroom";
-bathroom.lamp = Cfg.get('load3');
-bathroom.motion = Cfg.get('motion1');
-bathroom.door = Cfg.get('door1');
-bathroom.led_locked = Cfg.get('led.lock1');
+bathroom.lamp = pin.lamp1;
+bathroom.motion = pin.pir1;
+bathroom.door = pin.door1;
+bathroom.led_locked = pin.locked1Led;
+
+// Свет в туалете
+let toilet = Object.create(light_proto);
+toilet.id = "toilet";
+toilet.lamp = pin.lamp2;
+toilet.motion = pin.pir2;
+toilet.door = pin.door2;
+toilet.led_locked = pin.locked2Led;
+
+// Свет в корридоре
+let passage = Object.create(light_proto);
+passage.id = "passage";
+passage.lamp = pin.lamp3;
+passage.motion = pin.pir3;
 
 // MQ9 sensor handling
 let warming_up = true;
@@ -82,21 +103,20 @@ let co = 0;
 // ventilation control values
 let co2 = 0;
 let fan_state = 0;
-let fan_pin = Cfg.get('load4');
 
 let fan_set = function(new_state){
-  if (fan_state === new_state || !fan_pin){
+  if (fan_state === new_state || !pin.fan){
     return;
   };
 
   fan_state = new_state;
-  GPIO.write(fan_pin, !fan_state); // we have inverted output (open drain)
+  GPIO.write(pin.fan, !fan_state); // we have inverted output (open drain)
   MQTT.pub('fan1', JSON.stringify(fan_state), 0);
 };
 
 let hysteresis = 150;
 let fan_logic = function(){
-  if (!fan_pin)
+  if (!pin.fan)
     return;
 
   let human_in_toilet = toilet.timer || toilet.locked;
@@ -108,8 +128,8 @@ let fan_logic = function(){
     fan_set(1);
   }else if ((ctrl >= 700.0 || co >= 500.0) && !human_in_toilet && !human_in_bathroom){
     fan_set(1);
-  //}else if (ctrl >= 900.0 && !human_in_toilet){
-  //  fan_set(1);
+  }else if (ctrl >= 800.0 && !human_in_toilet){
+    fan_set(1);
   }else{
     fan_set(0);
   };
@@ -117,40 +137,37 @@ let fan_logic = function(){
 
 // red-green led with common anode
 // we use that to indicate CO2 level, where red - very bad, and green - very good level.
-let bicolor_led_red = 12;
-let bicolor_led_green = 17;
-GPIO.set_mode(bicolor_led_red, GPIO.MODE_OUTPUT);
-GPIO.set_pull(bicolor_led_red, GPIO.PULL_NONE);
-GPIO.write(bicolor_led_red, 0);
-GPIO.set_mode(bicolor_led_green, GPIO.MODE_OUTPUT);
-GPIO.set_pull(bicolor_led_green, GPIO.PULL_NONE);
-GPIO.write(bicolor_led_green, 0);
+GPIO.set_mode(pin.bicolorRed, GPIO.MODE_OUTPUT);
+GPIO.set_pull(pin.bicolorRed, GPIO.PULL_NONE);
+GPIO.write(pin.bicolorRed, 0);
+GPIO.set_mode(pin.bicolorGreen, GPIO.MODE_OUTPUT);
+GPIO.set_pull(pin.bicolorGreen, GPIO.PULL_NONE);
+GPIO.write(pin.bicolorGreen, 0);
 
 let bicolor_led_logic = function(){
-  GPIO.write(bicolor_led_red, (co2 > 600));
-  GPIO.write(bicolor_led_green, (co2 < 1000));
+  GPIO.write(pin.bicolorRed, (co2 > 600));
+  GPIO.write(pin.bicolorGreen, (co2 < 1000));
 };
 
 // simple red or yellow led to show VOC level (MQ9 sensor). raw value range is 0..1000.0
-let mq_led = Cfg.get('led.alert2');
 let mq_status_led_logic = function(){
-  if (!mq_led)
+  if (!pin.vocLed)
     return;
 
   if (co < 100.0 && methane < 200.0){
-    LED.set(mq_led, LED.OFF);
+    LED.set(pin.vocLed, LED.OFF);
   }else if (co > 800.0 || methane > 800.0){
-    LED.set(mq_led, LED.FAST);
+    LED.set(pin.vocLed, LED.FAST);
   }else if (co > 500.0){
-    LED.set(mq_led, LED.ON);
+    LED.set(pin.vocLed, LED.ON);
   }else if (co > 200.0 || methane > 300.0){
-    LED.set(mq_led, LED.BLINK);
+    LED.set(pin.vocLed, LED.BLINK);
   }else{
-    LED.set(mq_led, LED.RARE);
+    LED.set(pin.vocLed, LED.RARE);
   };
 };
 
-if (Cfg.get('mq.enable') && MQ.init()){
+if (pin.mqPower && pin.mqSense && MQ.init(pin.mqPower, pin.mqSense)){
   Event.on(METHANE, function() {
     if (warming_up){
       if (MQ.value() < 0){
@@ -167,10 +184,10 @@ if (Cfg.get('mq.enable') && MQ.init()){
         return;
       }
 
-      GPIO.toggle(led);
+      GPIO.toggle(pin.led);
       MQTT.pub('methane/' + Cfg.get('node.name'), JSON.stringify(methane), 0);
       print('Published', MQ.designation(), 'with', methane);
-      GPIO.toggle(led);
+      GPIO.toggle(pin.led);
     };
   }, null);
 
@@ -186,50 +203,49 @@ if (Cfg.get('mq.enable') && MQ.init()){
         return;
       }
 
-      GPIO.toggle(led);
+      GPIO.toggle(pin.led);
       MQTT.pub('co/' + Cfg.get('node.name'), JSON.stringify(co), 0);
       print('Published', MQ.designation(), 'with', co);
-      GPIO.toggle(led);
+      GPIO.toggle(pin.led);
     };
   }, null);
 }
 
-if (Cfg.get('z19.enable') && Z19.init()){
+if (pin.z19uartRx && pin.z19uartTx && Z19.init(pin.z19uartRx, pin.z19uartTx)){
   Event.on(CO2, function() {
-    GPIO.toggle(led);
+    GPIO.toggle(pin.led);
     co2 = Z19.value();
     MQTT.pub('co2/' + Cfg.get('node.name'), JSON.stringify(co2), 0);
     print('Published CO2:', co2);
-    GPIO.toggle(led);
+    GPIO.toggle(pin.led);
     bicolor_led_logic();
     fan_logic();
   }, null);
 }
 
 // Online status led
-let ledOnline = Cfg.get('led.online');
-if (ledOnline){
-  initLight(ledOnline);
+if (pin.onlineLed){
+  initLight(pin.onlineLed);
 
   Event.on(Net.STATUS_CONNECTING, function() {
-    LED.set(ledOnline, LED.FAST);
+    LED.set(pin.onlineLed, LED.FAST);
   }, null);
 
   Event.on(Net.STATUS_DISCONNECTED, function() {
-    LED.set(ledOnline, LED.OFF);
+    LED.set(pin.onlineLed, LED.OFF);
   }, null);
 
   Event.on(Net.STATUS_GOT_IP, function() {
-    LED.set(ledOnline, LED.RARE);
+    LED.set(pin.onlineLed, LED.RARE);
   }, null);
 
   Event.on(Event.CLOUD_CONNECTED, function() {
     online = true;
-    LED.set(ledOnline, LED.ON);
+    LED.set(pin.onlineLed, LED.ON);
   }, null);
 
   Event.on(Event.CLOUD_DISCONNECTED, function() {
-    LED.set(ledOnline, LED.RARE);
+    LED.set(pin.onlineLed, LED.RARE);
     online = false;
   }, null);
 };
@@ -274,6 +290,7 @@ let switch_on = function(self, timeout) {
   }else{
     self.enabled_at = Sys.uptime();
     print("lamp", self.lamp, "timer set", timeout, "sec");
+    MQTT.pub('light/' + self.id, '1', 0);
   }
 
   GPIO.write(self.lamp, enabled);
@@ -294,8 +311,6 @@ let switch_on = function(self, timeout) {
   if (self.led_locked){
     LED.set(self.led_locked, timeout <= timeout_base ? LED.FAST : LED.BLINK);
   }
-  MQTT.pub('light/' + self.id, '1', 0);
-  MQTT.pub('timeout/' + self.id, JSON.stringify(timeout), 0);
   fan_logic();
 };
 
@@ -317,10 +332,10 @@ let switch_off = function(self) {
 
 GPIO.set_mode(passage.motion, GPIO.MODE_INPUT);
 GPIO.set_pull(passage.motion, GPIO.PULL_DOWN);
-GPIO.set_int_handler(passage.motion, GPIO.INT_EDGE_ANY, function(pin, room) {
-  // GPIO.disable_int(pin);
-  let current_state = GPIO.read(pin);
-  /*
+GPIO.set_int_handler(passage.motion, GPIO.INT_EDGE_ANY, function(gpio_pin, room) {
+  // GPIO.disable_int(gpio_pin);
+  let current_state = GPIO.read(gpio_pin);
+  /* commented -> catching hardware bugs
   if (passage.motion_state === current_state){
     // nothing new
     return;
@@ -368,14 +383,14 @@ GPIO.set_int_handler(passage.motion, GPIO.INT_EDGE_ANY, function(pin, room) {
     }
   }
   MQTT.pub('motion/' + passage.id, JSON.stringify(current_state), 0);
-  //GPIO.enable_int(pin);
+  //GPIO.enable_int(gpio_pin);
 }, passage);
 GPIO.enable_int(passage.motion);
 
 let setup_room_motion_handler = function(room){
   GPIO.set_mode(room.motion, GPIO.MODE_INPUT);
   GPIO.set_pull(room.motion, GPIO.PULL_DOWN);
-  GPIO.set_int_handler(room.motion, GPIO.INT_EDGE_ANY, function(pin, room) {
+  GPIO.set_int_handler(room.motion, GPIO.INT_EDGE_ANY, function(gpio_pin, room) {
     if (room.locked){
       // motion in locked room, where light always on. So ignoring.
       // print("ignoring motion in locked state", room.id);
@@ -419,7 +434,7 @@ let setup_room_motion_handler = function(room){
         }
       }
     }
-    MQTT.pub('motion/' + room.id, JSON.stringify(room.motion_state), 0);
+    MQTT.pub('motion/' + room.id, JSON.stringify(current_state), 0);
     // GPIO.enable_int(room.motion);
   }, room);
   GPIO.enable_int(room.motion);
@@ -438,16 +453,16 @@ let setup_door_handler = function(room){
   room.open_at = 0.0;
   room.closed_at = 0.0;
 
-  GPIO.set_int_handler(room.door, GPIO.INT_EDGE_ANY, function(pin, room) {
-    // GPIO.disable_int(pin); // mjs so slow, can loss interrupts while enable/disable them
+  GPIO.set_int_handler(room.door, GPIO.INT_EDGE_ANY, function(gpio_pin, room) {
+    // GPIO.disable_int(gpio_pin); // mjs so slow, can loss interrupts while enable/disable them
     if (room.door_debouncer){
       return;
     }
     // debounce
     room.door_debouncer = Timer.set(50, 0, function(self){
-      print("door pin triggered", self.door);
       let newState = GPIO.read(self.door);
       if (self.door_state !== newState){
+        print("door state changed", self.door);
         self.door_state = newState;
         // On door open...
         if (self.door_state){
@@ -470,10 +485,9 @@ let setup_door_handler = function(room){
             // Но так же это могут быть ошибки в коде. Чтобы обрабатывать подобные ошибки в конечном продукте, следует добавить действие по умолчанию.
             // Я пока оставлю так для отладки
             // TODO: may be remove forced_at time in both neighboring rooms. (?)
-            if (alarm_led){
-              LED.set( alarm_led, LED.FAST);
+            if (pin.alarmLed){
+              LED.set(pin.alarmLed, LED.FAST);
             }
-            // LED.set( Cfg.get('led.alert3'), LED.FAST);
           };
           MQTT.pub('door/' + self.id, '1', 0);
         // On door close...
@@ -510,45 +524,47 @@ setup_door_handler(toilet);
 
 let socket_timer = null;
 // Boot button -> toggles smart socket state with off timer, there is external PULL UP resistor (?).
-GPIO.set_button_handler(0, GPIO.PULL_NONE, GPIO.INT_EDGE_NEG, 50, function() {
-  let state = GPIO.toggle(Cfg.get('load5')) ? '0' : '1'; // toggle smart socket
-  MQTT.pub('socket1', state, 0);
-  // auto off timer 20 minuts
-  if (socket_timer) {
-    Timer.del(socket_timer);
-    socket_timer = null;
-  };
-  socket_timer = Timer.set(20*60000, 0, function(self) {
-    GPIO.write(Cfg.get('load5'), !enabled);
-    print("socket1 off by timeout");
-    MQTT.pub('socket1', '0', 0);
-    socket_timer = null;
+if (pin.socket){
+  GPIO.set_button_handler(0, GPIO.PULL_NONE, GPIO.INT_EDGE_NEG, 50, function() {
+    let str = GPIO.toggle(pin.socket) ? '0' : '1'; // toggle smart socket
+    MQTT.pub('socket1', str, 0);
+    // auto off timer 20 minuts
+    if (socket_timer) {
+      Timer.del(socket_timer);
+      socket_timer = null;
+    };
+    socket_timer = Timer.set(20*60000, 0, function(self) {
+      GPIO.write(pin.socket, !enabled);
+      print("socket1 off by timeout");
+      MQTT.pub('socket1', '0', 0);
+      socket_timer = null;
+    }, null);
   }, null);
-}, null);
-// public initial state
-MQTT.pub('socket1', '0', 0);
-MQTT.pub('fan1', '0', 0);
+}
 
 MQTT.setEventHandler(function(conn,ev,evdata){
   if( ev === MQTT.EV_CONNACK ){
-    if (smart_socket_pin){
+    if (pin.socket){
+      // MQTT.pub('socket1', '0', 0); // publish initial state
       MQTT.sub('socket1/set', function(conn, topic, msg) {
         let value = JSON.parse(msg);
-        GPIO.write(smart_socket_pin, !value); // we have inverted output (open drain)
+        GPIO.write(pin.socket, !value); // we have inverted output (open drain)
         MQTT.pub('socket1', msg, 0);
-      }, null);  
+      }, null);
     };
     
-    if (fan_pin){
+    if (pin.fan){
+      MQTT.pub('fan1', JSON.stringify(fan_state), 0); // publish initial state
       MQTT.sub('fan1/set', function(conn, topic, msg) {
         fan_set(JSON.parse(msg));
       }, null);
     };
 
-    if (alarm_led){
+    if (pin.alarmLed){
+      MQTT.pub('alarm', '0', 0); // publish initial state
       MQTT.sub('alarm/set', function(conn, topic, msg) {
         let value = JSON.parse(msg);
-        GPIO.write(alarm_led, !value); // we have inverted output (open drain)
+        GPIO.write(pin.alarmLed, !value); // we have inverted output (open drain)
         MQTT.pub('alarm', msg, 0);
       }, null);
     };
