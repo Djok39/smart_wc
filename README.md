@@ -25,5 +25,5 @@ This device is designed to become part of a smart home.
 - do not place motion sensors on the ceiling - they will be triggered when you walk near the room - the sensor will see your legs.
 - think about design and extensibility, i.e. maybe you want to add leak detectors later, but there is no remaining pins on MCU. So GPIO expander is needed in base design.
 
-## installation
+## Installation
 - please, refer to documentation, setup wi-wi, mqtt, mDash, etc. https://mongoose-os.com/docs/mongoose-os/quickstart/setup.md
