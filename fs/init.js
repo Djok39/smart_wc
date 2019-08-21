@@ -334,6 +334,7 @@ let switch_off = function(self) {
 
 GPIO.set_mode(passage.motion, GPIO.MODE_INPUT);
 GPIO.set_pull(passage.motion, GPIO.PULL_DOWN);
+MQTT.pub('light/' + passage.id, '0', 0);
 GPIO.set_int_handler(passage.motion, GPIO.INT_EDGE_ANY, function(gpio_pin, room) {
   // GPIO.disable_int(gpio_pin);
   let current_state = GPIO.read(gpio_pin);
@@ -374,7 +375,7 @@ GPIO.set_int_handler(passage.motion, GPIO.INT_EDGE_ANY, function(gpio_pin, room)
           switch_on(bathroom, timeout_base);
         }
       }
-      // Welcome light on
+      // Welcome light on in bathroom
       if (isDoorOpen(bathroom) && !bathroom.locked && !bathroom.timer){
         let passage_light_age = Sys.uptime() - passage.enabled_at;
         let passage_time_since_disable = Sys.uptime() - passage.disabled_at;
@@ -392,12 +393,8 @@ GPIO.enable_int(passage.motion);
 let setup_room_motion_handler = function(room){
   GPIO.set_mode(room.motion, GPIO.MODE_INPUT);
   GPIO.set_pull(room.motion, GPIO.PULL_DOWN);
+  MQTT.pub('light/' + room.id, '0', 0);
   GPIO.set_int_handler(room.motion, GPIO.INT_EDGE_ANY, function(gpio_pin, room) {
-    if (room.locked){
-      // motion in locked room, where light always on. So ignoring.
-      // print("ignoring motion in locked state", room.id);
-      return;
-    }
     let current_state = GPIO.read(room.motion);
     /*if (room.motion_state === current_state){
       // nothing new
@@ -405,11 +402,24 @@ let setup_room_motion_handler = function(room){
     }*/
     room.motion_state = current_state;
     // GPIO.disable_int(room.motion);
+    MQTT.pub('motion/' + room.id, JSON.stringify(current_state), 0);
+    if (room.locked){
+      // motion in locked room, where light always on. So ignoring.
+      // print("ignoring motion in locked state", room.id);
+      return;
+    }
     // print("motion in", room.id ,"is", state);
     if (room.motion_state/* && !room.locked */){
       let forced_age = Sys.uptime() - room.forced_at;
       // ignore motions after forced event.
       if (forced_age >= pir_slippage_time){
+        let is_phanom_motion = true;
+        if ((isDoorOpen(room) && passage.timer) || room.timer || (Sys.uptime() - room.disabled_at)<30.0){
+          is_phanom_motion = false;
+        }else{
+          is_phanom_motion = true;
+          LED.set(pin.alarmLed, LED.BLINK);
+        };
         switch_on(room, room.timer ? (timeout_base * 3) : timeout_base);
         let room_light_age = Sys.uptime() - room.enabled_at;
         let passage_pass_time = Sys.uptime() - passage.enabled_at;
@@ -422,7 +432,7 @@ let setup_room_motion_handler = function(room){
         // case 1 to lock light alaways on
         if (isDoorClosed(room)){
           let door_closed_age = Sys.uptime() - room.closed_at;
-          if (door_closed_age >= pir_slippage_time){
+          if (door_closed_age >= pir_slippage_time && !is_phanom_motion){
             print("lock case 1");
             lock(room);
           }
@@ -436,7 +446,6 @@ let setup_room_motion_handler = function(room){
         }
       }
     }
-    MQTT.pub('motion/' + room.id, JSON.stringify(current_state), 0);
     // GPIO.enable_int(room.motion);
   }, room);
   GPIO.enable_int(room.motion);
@@ -505,10 +514,12 @@ let setup_door_handler = function(room){
               // user went to room from passage
               // Здесь я ожидаю ложные срабатывания. нужно соблюдать бдительность.
               switch_off(passage);
+              passage.forced_at = 0.0;
             }else if (passage_light_age <= 3.0 && passage_light_age*4.0 < room_light_age){
               // user went to passage from room
               // Здесь ложные срабатывания почти не возможны, в любом случае, человек будет достаточно долго находиться в комнате, прежде чем выйдет.
               switch_off(self);
+              self.forced_at = 0.0;
             }
           }
           MQTT.pub('door/' + self.id, '0', 0);
