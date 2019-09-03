@@ -70,7 +70,7 @@ initLight(pin.locked2Led);
 
 GPIO.set_mode(pin.led, 1);
 
-let light_proto = {motion: null, lamp: 0, door: -1, door_state: 1, motion_state: 0, timer: null, led_locked: null, locked: false, enabled_at: -1.0, disabled_at: -1.0, forced_at: -7.0}; 
+let light_proto = {motion: null, lamp: 0, door: -1, door_state: 1, motion_state: 0, timer: null, led_locked: null, locked: false, enabled_at: -1.0, disabled_at: -1.0, forced_at: -7.0, used_at: 0.0}; 
 let timeout_base = Cfg.get('light.timeout');
 let nodeId = Cfg.get('node.name');
 let pir_slippage_time = 7.0; // HC-SR501 sensor has bug/feature, where you leave room, but sensor will still detect motion for some time.
@@ -123,14 +123,16 @@ let fan_logic = function(){
 
   let human_in_toilet = toilet.timer || toilet.locked;
   let human_in_bathroom = bathroom.timer || bathroom.locked;
+  let visited_recently = !human_in_toilet && (Sys.uptime() - toilet.used_at) < 600.0 ;
 
   let ctrl = fan_state ? (co2+hysteresis) : co2;
+  let ctrl2 = fan_state ? (co+75.0) : co;
 
   if (ctrl > 1400.0){
     fan_set(1);
-  }else if ((ctrl >= 700.0 || co >= 500.0) && !human_in_toilet && !human_in_bathroom){
+  }else if ((ctrl >= 700.0 || ctrl2 >= 150.0) && !human_in_toilet && !human_in_bathroom && visited_recently){
     fan_set(1);
-  }else if (ctrl >= 800.0 && !human_in_toilet){
+  }else if (ctrl >= 800.0 && !human_in_toilet && visited_recently){
     fan_set(1);
   }else{
     fan_set(0);
@@ -260,6 +262,10 @@ let isDoorOpen = function(self) {
   return !isDoorClosed(self);
 };
 
+let isLightOn = function(self) {
+  return (self.timer || self.locked) ? 1 : 0;
+};
+
 let lock = function(self) {
   if (self.timer) {
     Timer.del(self.timer);
@@ -300,13 +306,13 @@ let switch_on = function(self, timeout) {
   self.timer = Timer.set(timeout*1000, 0, function(self) {
     GPIO.write(self.lamp, !enabled);
     self.timer = null;
-    self.locked = false;
-    if (self.led_locked){
-      LED.set(self.led_locked, LED.OFF);
-    }
+    unlock(self);
     self.disabled_at = Sys.uptime();
-    print("lamp", self.lamp, "off by timeout");
     MQTT.pub('light/' + self.id, '0', 0);
+    print("lamp", self.lamp, "off by timeout");
+    if ((self.disabled_at - self.enabled_at) > 30.0){
+      self.used_at = self.disabled_at;
+    }
     fan_logic();
   }, self);
   // timer running -> led blinking
@@ -327,14 +333,17 @@ let switch_off = function(self) {
   if (self.locked){
     unlock(self);
   };
-  self.forced_at = Sys.uptime();
+  self.disabled_at = Sys.uptime();
+  self.forced_at = self.disabled_at;
   MQTT.pub('light/' + self.id, '0', 0);
+  if ((self.disabled_at - self.enabled_at) > 30.0){
+    self.used_at = self.disabled_at;
+  }
   fan_logic();
 };
 
 GPIO.set_mode(passage.motion, GPIO.MODE_INPUT);
 GPIO.set_pull(passage.motion, GPIO.PULL_DOWN);
-MQTT.pub('light/' + passage.id, '0', 0);
 GPIO.set_int_handler(passage.motion, GPIO.INT_EDGE_ANY, function(gpio_pin, room) {
   // GPIO.disable_int(gpio_pin);
   let current_state = GPIO.read(gpio_pin);
@@ -393,7 +402,6 @@ GPIO.enable_int(passage.motion);
 let setup_room_motion_handler = function(room){
   GPIO.set_mode(room.motion, GPIO.MODE_INPUT);
   GPIO.set_pull(room.motion, GPIO.PULL_DOWN);
-  MQTT.pub('light/' + room.id, '0', 0);
   GPIO.set_int_handler(room.motion, GPIO.INT_EDGE_ANY, function(gpio_pin, room) {
     let current_state = GPIO.read(room.motion);
     /*if (room.motion_state === current_state){
@@ -419,6 +427,7 @@ let setup_room_motion_handler = function(room){
         }else{
           is_phanom_motion = true;
           LED.set(pin.alarmLed, LED.BLINK);
+          MQTT.pub('error/' + nodeId, '4', 0);
         };
         switch_on(room, room.timer ? (timeout_base * 3) : timeout_base);
         let room_light_age = Sys.uptime() - room.enabled_at;
@@ -463,7 +472,6 @@ let setup_door_handler = function(room){
   room.door_state = current_state;
   room.open_at = 0.0;
   room.closed_at = 0.0;
-  MQTT.pub('door/' + room.id, JSON.stringify(current_state), 0);
 
   GPIO.set_int_handler(room.door, GPIO.INT_EDGE_ANY, function(gpio_pin, room) {
     // GPIO.disable_int(gpio_pin); // mjs so slow, can loss interrupts while enable/disable them
@@ -472,6 +480,7 @@ let setup_door_handler = function(room){
     }
     // debounce
     room.door_debouncer = Timer.set(50, 0, function(self){
+      self.door_debouncer = null;
       let newState = GPIO.read(self.door);
       if (self.door_state !== newState){
         print("door state changed", self.door);
@@ -482,6 +491,7 @@ let setup_door_handler = function(room){
           let room_light_on = self.timer || self.locked;
           if (!room_light_on && passage.timer){
             switch_on(self, pir_slippage_time);
+            self.enabled_at = self.open_at;
             // make sure, that human going exactly to this room
             let passage_pass_time = Sys.uptime() - passage.enabled_at;
             if (passage_pass_time < 4.0){ // lower timeout for passage
@@ -499,6 +509,7 @@ let setup_door_handler = function(room){
             // TODO: may be remove forced_at time in both neighboring rooms. (?)
             if (pin.alarmLed){
               LED.set(pin.alarmLed, LED.SLOW);
+              MQTT.pub('error/' + nodeId, '3', 0);
             }
           };
           MQTT.pub('door/' + self.id, '1', 0);
@@ -515,7 +526,7 @@ let setup_door_handler = function(room){
               // Здесь я ожидаю ложные срабатывания. нужно соблюдать бдительность.
               switch_off(passage);
               passage.forced_at = 0.0;
-            }else if (passage_light_age <= 3.0 && passage_light_age*4.0 < room_light_age){
+            }else if (passage_light_age <= 3.0 && passage_light_age*4.0 < room_light_age && self.enabled_at === self.open_at){
               // user went to passage from room
               // Здесь ложные срабатывания почти не возможны, в любом случае, человек будет достаточно долго находиться в комнате, прежде чем выйдет.
               switch_off(self);
@@ -525,7 +536,6 @@ let setup_door_handler = function(room){
           MQTT.pub('door/' + self.id, '0', 0);
         }
       }
-      self.door_debouncer = null;
       // GPIO.enable_int(self.door);
     }, room);
   }, room);
@@ -554,6 +564,15 @@ if (pin.socket){
 
 MQTT.setEventHandler(function(conn,ev,evdata){
   if( ev === MQTT.EV_CONNACK ){
+    MQTT.pub('error/' + nodeId, '0', 0);
+
+    MQTT.pub('light/' + bathroom.id, JSON.stringify(isLightOn(bathroom)), 0);
+    MQTT.pub('light/' + toilet.id, JSON.stringify(isLightOn(toilet)), 0);
+    MQTT.pub('light/' + passage.id, JSON.stringify(isLightOn(passage)), 0);
+
+    MQTT.pub('door/' + bathroom.id, JSON.stringify(bathroom.door_state), 0);
+    MQTT.pub('door/' + toilet.id, JSON.stringify(toilet.door_state), 0);
+
     if (pin.socket){
       MQTT.pub('socket/' + nodeId, '0', 0); // publish initial state
       MQTT.sub('socket/' + nodeId + '/set', function(conn, topic, msg) {
